@@ -180,4 +180,4 @@ class PredictiveRoutingModel:
             name: self._auth_probability(bin_id, issuer_lag_detected, code)
             for name, code in self._GATEWAY_ENCODING.items()
         }
-        return max(probabilities, key=lambda g: probabilities[g])
+        return max(probabilities, key=probabilities.__getitem__)

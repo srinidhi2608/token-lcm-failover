@@ -1,0 +1,23 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "urlPath": "/gateway/alpha/authorize",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": "$.bin[?(@ =~ /^5.*/)]"
+      }
+    ]
+  },
+  "response": {
+    "status": 504,
+    "jsonBody": {
+      "gateway": "alpha",
+      "approved": false,
+      "error": "issuer_transitional_lag"
+    },
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  }
+}

@@ -8,6 +8,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
+RANDOM_SEED = 42
+
 
 @dataclass(frozen=True)
 class RoutingFeatures:
@@ -46,7 +48,7 @@ class MLEngine:
         model = Pipeline(
             steps=[
                 ("preprocessor", preprocessor),
-                ("classifier", LogisticRegression(random_state=42)),
+                ("classifier", LogisticRegression(random_state=RANDOM_SEED)),
             ]
         )
         model.fit(train_df[categorical], train_df["authorized"])

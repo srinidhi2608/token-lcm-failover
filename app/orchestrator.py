@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import httpx
 
@@ -63,7 +63,7 @@ class RoutingOrchestrator:
             ) from exc
         gateway_response = response.json()
 
-        return {"decision": decision.__dict__, "gateway_response": gateway_response}
+        return {"decision": asdict(decision), "gateway_response": gateway_response}
 
     async def aclose(self) -> None:
         await self._client.aclose()

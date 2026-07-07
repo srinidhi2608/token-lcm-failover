@@ -91,11 +91,16 @@ class PredictiveRoutingModel:
     _FEATURE_COLUMNS = ["bin_id", "issuer_lag_detected", "historical_decline_rate", "gateway"]
 
     def __init__(self) -> None:
-        self._model = self._train_mock_model()
+        self._model, self._mean_decline_rate = self._train_mock_model()
 
     @staticmethod
-    def _train_mock_model() -> RandomForestClassifier:
-        """Fit a RandomForestClassifier on synthetic training data."""
+    def _train_mock_model() -> tuple[RandomForestClassifier, float]:
+        """Fit a RandomForestClassifier on synthetic training data.
+
+        Returns the trained model together with the mean ``historical_decline_rate``
+        from the training set.  The mean is used as a sensible default when
+        ``historical_decline_rate`` is not available at inference time.
+        """
         train_df = pd.DataFrame(
             [
                 # BIN group 400000 – alpha performs well under normal conditions
@@ -117,20 +122,36 @@ class PredictiveRoutingModel:
                 {"bin_id": 411111, "issuer_lag_detected": 1, "historical_decline_rate": 0.55, "gateway": 1, "authorized": 1},
             ]
         )
+        mean_decline_rate: float = float(train_df["historical_decline_rate"].mean())
         features = train_df[PredictiveRoutingModel._FEATURE_COLUMNS]
         labels = train_df["authorized"]
         model = RandomForestClassifier(n_estimators=100, random_state=RANDOM_SEED)
         model.fit(features, labels)
-        return model
+        return model, mean_decline_rate
 
-    def _auth_probability(self, bin_id: int, issuer_lag_detected: int, gateway_code: int) -> float:
-        """Return the predicted authorization probability for a single gateway."""
+    def _auth_probability(
+        self,
+        bin_id: int,
+        issuer_lag_detected: int,
+        gateway_code: int,
+        historical_decline_rate: float | None = None,
+    ) -> float:
+        """Return the predicted authorization probability for a single gateway.
+
+        Parameters
+        ----------
+        historical_decline_rate : float or None
+            Fraction of recent transactions that were declined.  When ``None``
+            the mean decline rate from training data is used as a baseline
+            estimate so that the model receives a representative feature value.
+        """
+        decline_rate = historical_decline_rate if historical_decline_rate is not None else self._mean_decline_rate
         payload = pd.DataFrame(
             [
                 {
                     "bin_id": bin_id,
                     "issuer_lag_detected": issuer_lag_detected,
-                    "historical_decline_rate": 0.0,
+                    "historical_decline_rate": decline_rate,
                     "gateway": gateway_code,
                 }
             ]

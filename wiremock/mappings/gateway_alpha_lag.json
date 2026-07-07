@@ -5,7 +5,7 @@
     "urlPath": "/gateway/alpha/authorize",
     "bodyPatterns": [
       {
-        "matchesJsonPath": "$.bin[?(@ =~ /^5.*/)]"
+        "matchesJsonPath": "$.bin[?(@ =~ /^5[0-9]{5,7}$/)]"
       }
     ]
   },

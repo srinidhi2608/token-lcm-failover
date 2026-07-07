@@ -15,14 +15,18 @@ class RouteDecision:
 
 
 class RoutingOrchestrator:
-    def __init__(self, wiremock_base_url: str = "http://wiremock:8080") -> None:
+    def __init__(self, wiremock_base_url: str = "http://wiremock:8080", request_timeout: float = 5.0) -> None:
         self._wiremock_base_url = wiremock_base_url.rstrip("/")
         self._ml_engine = MLEngine()
-        self._client = httpx.AsyncClient(base_url=self._wiremock_base_url, timeout=5.0)
+        self._client = httpx.AsyncClient(base_url=self._wiremock_base_url, timeout=request_timeout)
 
-    def choose_gateway(self, card_bin: str, last_error_code: str | None = None) -> RouteDecision:
+    @staticmethod
+    def _validate_card_bin(card_bin: str) -> None:
         if not card_bin:
             raise ValueError("card_bin must be a non-empty string")
+
+    def choose_gateway(self, card_bin: str, last_error_code: str | None = None) -> RouteDecision:
+        self._validate_card_bin(card_bin)
 
         bin_prefix = card_bin[0]
         error_code = last_error_code or "none"
@@ -42,6 +46,7 @@ class RoutingOrchestrator:
         )
 
     async def route_authorization(self, card_bin: str, amount: float, last_error_code: str | None = None) -> dict:
+        self._validate_card_bin(card_bin)
         decision = self.choose_gateway(card_bin=card_bin, last_error_code=last_error_code)
         endpoint = f"/gateway/{decision.selected_gateway}/authorize"
         request_payload = {"bin": card_bin, "amount": amount}

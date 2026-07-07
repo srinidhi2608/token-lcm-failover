@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 from app.orchestrator import RoutingOrchestrator
 
-app = FastAPI(title="token-lcm-failover", version="0.1.0")
 orchestrator = RoutingOrchestrator()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    yield
+    await orchestrator.aclose()
+
+
+app = FastAPI(title="token-lcm-failover", version="0.1.0", lifespan=lifespan)
 
 
 class RouteRequest(BaseModel):
@@ -18,11 +28,6 @@ class RouteRequest(BaseModel):
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
-
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    await orchestrator.aclose()
 
 
 @app.post("/route")

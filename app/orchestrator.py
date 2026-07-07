@@ -20,7 +20,10 @@ class RoutingOrchestrator:
         self._ml_engine = MLEngine()
 
     def choose_gateway(self, card_bin: str, last_error_code: str | None = None) -> RouteDecision:
-        bin_prefix = (card_bin or "0")[0]
+        if not card_bin:
+            raise ValueError("card_bin must be a non-empty string")
+
+        bin_prefix = card_bin[0]
         error_code = last_error_code or "none"
 
         alpha_probability = self._ml_engine.predict_auth_probability(
@@ -44,7 +47,13 @@ class RoutingOrchestrator:
 
         async with httpx.AsyncClient(base_url=self._wiremock_base_url, timeout=5.0) as client:
             response = await client.post(endpoint, json=request_payload)
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise RuntimeError(
+                    f"Gateway '{decision.selected_gateway}' request to '{endpoint}' failed "
+                    f"with status {exc.response.status_code}"
+                ) from exc
             gateway_response = response.json()
 
         return {"decision": decision.__dict__, "gateway_response": gateway_response}

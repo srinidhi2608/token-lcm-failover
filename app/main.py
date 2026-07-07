@@ -10,7 +10,7 @@ orchestrator = RoutingOrchestrator()
 
 
 class RouteRequest(BaseModel):
-    bin: str = Field(min_length=6, max_length=8)
+    card_bin: str = Field(alias="bin", min_length=6, max_length=8)
     amount: float = Field(gt=0)
     last_error_code: str | None = None
 
@@ -23,7 +23,7 @@ async def health() -> dict:
 @app.post("/route")
 async def route(request: RouteRequest) -> dict:
     return await orchestrator.route_authorization(
-        card_bin=request.bin,
+        card_bin=request.card_bin,
         amount=request.amount,
         last_error_code=request.last_error_code,
     )

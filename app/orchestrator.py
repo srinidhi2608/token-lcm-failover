@@ -24,6 +24,8 @@ class RoutingOrchestrator:
     def _validate_card_bin(card_bin: str) -> None:
         if not card_bin:
             raise ValueError("card_bin must be a non-empty string")
+        if not 6 <= len(card_bin) <= 8:
+            raise ValueError("card_bin must be between 6 and 8 characters")
 
     def choose_gateway(self, card_bin: str, last_error_code: str | None = None) -> RouteDecision:
         self._validate_card_bin(card_bin)

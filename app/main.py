@@ -2,18 +2,17 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel, Field
 
 from app.orchestrator import RoutingOrchestrator
 
-orchestrator = RoutingOrchestrator()
-
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(app: FastAPI):
+    app.state.orchestrator = RoutingOrchestrator()
     yield
-    await orchestrator.aclose()
+    await app.state.orchestrator.aclose()
 
 
 app = FastAPI(title="token-lcm-failover", version="0.1.0", lifespan=lifespan)
@@ -31,9 +30,10 @@ async def health() -> dict:
 
 
 @app.post("/route")
-async def route(request: RouteRequest) -> dict:
+async def route(request: Request, payload: RouteRequest) -> dict:
+    orchestrator: RoutingOrchestrator = request.app.state.orchestrator
     return await orchestrator.route_authorization(
-        card_bin=request.card_bin,
-        amount=request.amount,
-        last_error_code=request.last_error_code,
+        card_bin=payload.card_bin,
+        amount=payload.amount,
+        last_error_code=payload.last_error_code,
     )

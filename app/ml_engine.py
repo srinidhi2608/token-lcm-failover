@@ -46,7 +46,7 @@ class MLEngine:
         model = Pipeline(
             steps=[
                 ("preprocessor", preprocessor),
-                ("classifier", LogisticRegression(max_iter=500)),
+                ("classifier", LogisticRegression(max_iter=500, random_state=42)),
             ]
         )
         model.fit(train_df[categorical], train_df["authorized"])

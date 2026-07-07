@@ -20,6 +20,11 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    await orchestrator.aclose()
+
+
 @app.post("/route")
 async def route(request: RouteRequest) -> dict:
     return await orchestrator.route_authorization(

@@ -18,6 +18,7 @@ class RoutingOrchestrator:
     def __init__(self, wiremock_base_url: str = "http://wiremock:8080") -> None:
         self._wiremock_base_url = wiremock_base_url.rstrip("/")
         self._ml_engine = MLEngine()
+        self._client = httpx.AsyncClient(base_url=self._wiremock_base_url, timeout=5.0)
 
     def choose_gateway(self, card_bin: str, last_error_code: str | None = None) -> RouteDecision:
         if not card_bin:
@@ -45,15 +46,17 @@ class RoutingOrchestrator:
         endpoint = f"/gateway/{decision.selected_gateway}/authorize"
         request_payload = {"bin": card_bin, "amount": amount}
 
-        async with httpx.AsyncClient(base_url=self._wiremock_base_url, timeout=5.0) as client:
-            response = await client.post(endpoint, json=request_payload)
-            try:
-                response.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                raise RuntimeError(
-                    f"Gateway '{decision.selected_gateway}' request to '{endpoint}' failed "
-                    f"with status {exc.response.status_code}"
-                ) from exc
-            gateway_response = response.json()
+        response = await self._client.post(endpoint, json=request_payload)
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"Gateway '{decision.selected_gateway}' request to '{endpoint}' failed "
+                f"with status {exc.response.status_code}"
+            ) from exc
+        gateway_response = response.json()
 
         return {"decision": decision.__dict__, "gateway_response": gateway_response}
+
+    async def aclose(self) -> None:
+        await self._client.aclose()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -22,7 +23,7 @@ def _extract_bin_id(token: str) -> int:
         "400000" -> 400000
         "TKN-400000" -> 400000
         "500000-ABC" -> 500000
-        "12-345-67" -> 12 (extracts first sequence)
+        "TKN-123-ABC" -> ValueError (extracted "123" is too small, requires >= 100000)
     
     Raises
     ------
@@ -30,7 +31,6 @@ def _extract_bin_id(token: str) -> int:
         If token contains no digits or if extracted number is not a valid BIN ID
     """
     # Extract the first contiguous sequence of digits
-    import re
     match = re.search(r'\d+', token)
     if not match:
         raise ValueError("Token must contain at least one digit")

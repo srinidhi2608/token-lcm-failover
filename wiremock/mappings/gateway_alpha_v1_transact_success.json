@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/gateway_alpha/transact"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "gateway": "gateway_alpha",
+      "approved": true,
+      "auth_code": "ALPHA-TX-OK"
+    },
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  }
+}

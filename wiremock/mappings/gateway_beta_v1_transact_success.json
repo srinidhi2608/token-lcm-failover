@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/gateway_beta/transact"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "gateway": "gateway_beta",
+      "approved": true,
+      "auth_code": "BETA-TX-OK"
+    },
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  }
+}

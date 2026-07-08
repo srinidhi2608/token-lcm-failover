@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import pandas as pd
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
@@ -73,111 +73,78 @@ class MLEngine:
 
 
 class PredictiveRoutingModel:
-    """RandomForest-based model predicting gateway authorization probability.
+    """CSV-driven model predicting the best gateway from payment features."""
 
-    Training features
-    -----------------
-    bin_id : int
-        Numeric identifier representing the card BIN group.
-    issuer_lag_detected : int (0 or 1)
-        Binary flag indicating whether transitional issuer lag has been detected.
-    historical_decline_rate : float
-        Fraction of recent transactions that resulted in a decline (0.0–1.0).
-    gateway : int (0 = gateway_alpha, 1 = gateway_beta)
-        Target gateway rail encoded as a binary integer.
-    """
+    _CATEGORICAL_COLUMNS = [
+        "card_scheme",
+        "card_class",
+        "transaction_type",
+        "token_lifecycle_status",
+    ]
+    _NUMERICAL_COLUMNS = ["bin", "historical_decline_rate", "amount"]
+    _FEATURE_COLUMNS = _CATEGORICAL_COLUMNS + _NUMERICAL_COLUMNS
+    _TARGET_COLUMN = "recommended_gateway"
 
-    _GATEWAY_ENCODING: dict[str, int] = {GATEWAY_ALPHA: 0, GATEWAY_BETA: 1}
-    _FEATURE_COLUMNS = ["bin_id", "issuer_lag_detected", "historical_decline_rate", "gateway"]
+    def __init__(self, dataset_path: str | None = None) -> None:
+        default_path = Path(__file__).resolve().parents[1] / "data" / "payment_training_data.csv"
+        self._dataset_path = Path(dataset_path) if dataset_path else default_path
+        self._model = self._train_model()
 
-    def __init__(self) -> None:
-        self._model, self._mean_decline_rate = self._train_mock_model()
+    def _load_training_data(self) -> pd.DataFrame:
+        train_df = pd.read_csv(self._dataset_path)
+        missing_columns = [
+            column
+            for column in self._FEATURE_COLUMNS + [self._TARGET_COLUMN]
+            if column not in train_df.columns
+        ]
+        if missing_columns:
+            raise ValueError(
+                f"Training dataset is missing required columns: {', '.join(missing_columns)}"
+            )
+        return train_df
 
-    @staticmethod
-    def _train_mock_model() -> tuple[RandomForestClassifier, float]:
-        """Fit a RandomForestClassifier on synthetic training data.
-
-        Returns the trained model together with the mean ``historical_decline_rate``
-        from the training set.  The mean is used as a sensible default when
-        ``historical_decline_rate`` is not available at inference time.
-        """
-        train_df = pd.DataFrame(
-            [
-                # BIN group 400000 – alpha performs well under normal conditions
-                {"bin_id": 400000, "issuer_lag_detected": 0, "historical_decline_rate": 0.05, "gateway": 0, "authorized": 1},
-                {"bin_id": 400000, "issuer_lag_detected": 0, "historical_decline_rate": 0.05, "gateway": 1, "authorized": 1},
-                # Alpha degrades when issuer lag is detected; beta stays reliable
-                {"bin_id": 400000, "issuer_lag_detected": 1, "historical_decline_rate": 0.40, "gateway": 0, "authorized": 0},
-                {"bin_id": 400000, "issuer_lag_detected": 1, "historical_decline_rate": 0.40, "gateway": 1, "authorized": 1},
-                # BIN group 500000 – both gateways fine under normal conditions
-                {"bin_id": 500000, "issuer_lag_detected": 0, "historical_decline_rate": 0.08, "gateway": 0, "authorized": 1},
-                {"bin_id": 500000, "issuer_lag_detected": 0, "historical_decline_rate": 0.08, "gateway": 1, "authorized": 1},
-                # High decline rate + lag → alpha fails, beta succeeds
-                {"bin_id": 500000, "issuer_lag_detected": 1, "historical_decline_rate": 0.65, "gateway": 0, "authorized": 0},
-                {"bin_id": 500000, "issuer_lag_detected": 1, "historical_decline_rate": 0.65, "gateway": 1, "authorized": 1},
-                # BIN group 411111 – additional samples to strengthen signal
-                {"bin_id": 411111, "issuer_lag_detected": 0, "historical_decline_rate": 0.10, "gateway": 0, "authorized": 1},
-                {"bin_id": 411111, "issuer_lag_detected": 0, "historical_decline_rate": 0.10, "gateway": 1, "authorized": 1},
-                {"bin_id": 411111, "issuer_lag_detected": 1, "historical_decline_rate": 0.55, "gateway": 0, "authorized": 0},
-                {"bin_id": 411111, "issuer_lag_detected": 1, "historical_decline_rate": 0.55, "gateway": 1, "authorized": 1},
+    def _train_model(self) -> Pipeline:
+        train_df = self._load_training_data()
+        preprocessor = ColumnTransformer(
+            transformers=[
+                (
+                    "categorical",
+                    OneHotEncoder(handle_unknown="ignore"),
+                    self._CATEGORICAL_COLUMNS,
+                ),
+                ("numerical", "passthrough", self._NUMERICAL_COLUMNS),
             ]
         )
-        mean_decline_rate: float = float(train_df["historical_decline_rate"].mean())
-        features = train_df[PredictiveRoutingModel._FEATURE_COLUMNS]
-        labels = train_df["authorized"]
-        model = RandomForestClassifier(n_estimators=100, random_state=RANDOM_SEED)
-        model.fit(features, labels)
-        return model, mean_decline_rate
-
-    def _auth_probability(
-        self,
-        bin_id: int,
-        issuer_lag_detected: int,
-        gateway_code: int,
-        historical_decline_rate: float | None = None,
-    ) -> float:
-        """Return the predicted authorization probability for a single gateway.
-
-        Parameters
-        ----------
-        historical_decline_rate : float or None
-            Fraction of recent transactions that were declined.  When ``None``
-            the mean decline rate from training data is used as a baseline
-            estimate so that the model receives a representative feature value.
-        """
-        decline_rate = historical_decline_rate if historical_decline_rate is not None else self._mean_decline_rate
-        payload = pd.DataFrame(
-            [
-                {
-                    "bin_id": bin_id,
-                    "issuer_lag_detected": issuer_lag_detected,
-                    "historical_decline_rate": decline_rate,
-                    "gateway": gateway_code,
-                }
+        model = Pipeline(
+            steps=[
+                ("preprocessor", preprocessor),
+                ("classifier", LogisticRegression(random_state=RANDOM_SEED, max_iter=1000)),
             ]
         )
-        return float(self._model.predict_proba(payload)[0][1])
+        model.fit(train_df[self._FEATURE_COLUMNS], train_df[self._TARGET_COLUMN])
+        return model
 
-    def predict_best_route(self, bin_id: int, issuer_lag_detected: int) -> str:
-        """Return the gateway name with the highest predicted authorization probability.
-
-        Parameters
-        ----------
-        bin_id : int
-            Numeric BIN identifier for the card being routed.
-        issuer_lag_detected : int
-            1 if transitional issuer lag is currently detected, 0 otherwise.
-
-        Returns
-        -------
-        str
-            Either ``'gateway_alpha'`` or ``'gateway_beta'``.
-        """
-        if issuer_lag_detected not in (0, 1):
-            raise ValueError("issuer_lag_detected must be 0 or 1")
-
-        probabilities: dict[str, float] = {
-            name: self._auth_probability(bin_id, issuer_lag_detected, code)
-            for name, code in self._GATEWAY_ENCODING.items()
+    def _normalize_features(self, features: dict) -> dict:
+        return {
+            "bin": int(features["bin"]),
+            "card_scheme": str(features["card_scheme"]).lower(),
+            "card_class": str(features["card_class"]).lower(),
+            "transaction_type": str(features["transaction_type"]).lower(),
+            "token_lifecycle_status": str(features["token_lifecycle_status"]).lower(),
+            "historical_decline_rate": float(features["historical_decline_rate"]),
+            "amount": float(features["amount"]),
         }
-        return max(probabilities, key=lambda k: probabilities[k])
+
+    def _probability_trace(self, features: dict) -> dict[str, float]:
+        payload = pd.DataFrame([self._normalize_features(features)])
+        classes = self._model.named_steps["classifier"].classes_
+        probabilities = self._model.predict_proba(payload)[0]
+        return {
+            gateway: float(probability)
+            for gateway, probability in zip(classes, probabilities, strict=True)
+        }
+
+    def predict_best_route(self, features: dict) -> tuple[str, dict]:
+        probabilities = self._probability_trace(features)
+        selected_gateway = max(probabilities, key=probabilities.get)
+        return selected_gateway, probabilities

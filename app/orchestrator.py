@@ -116,43 +116,43 @@ def _is_failover_response(response: httpx.Response) -> bool:
 
 
 async def route_transaction(payload: dict) -> dict:
-    """Determine the optimal gateway via ML and execute an HTTP POST to it.
-
-    If the chosen gateway returns a 504 timeout or a simulated transition error
-    (``issuer_transitional_lag``), the call is immediately retried against the
-    secondary gateway.
-
-    Parameters
-    ----------
-    payload:
-        Transaction data.  Must include ``bin_id`` (int) and may include
-        ``issuer_lag_detected`` (int, 0 or 1; defaults to 0).
-
-    Returns
-    -------
-    dict
-        ``gateway`` – name of the gateway that handled the request,
-        ``failover`` – True when the secondary gateway was used,
-        ``response`` – parsed JSON body from the gateway.
-    """
-    bin_id: int = int(payload["bin_id"])
-    issuer_lag_detected: int = int(payload.get("issuer_lag_detected", 0))
-
+    """Determine the optimal gateway via ML and execute an HTTP POST to it."""
+    bin_value = int(payload.get("bin", payload.get("bin_id")))
+    feature_payload = {
+        "bin": bin_value,
+        "card_scheme": str(payload["card_scheme"]).lower(),
+        "card_class": str(payload["card_class"]).lower(),
+        "transaction_type": str(payload["transaction_type"]).lower(),
+        "token_lifecycle_status": str(payload["token_lifecycle_status"]).lower(),
+        "historical_decline_rate": float(payload["historical_decline_rate"]),
+        "amount": float(payload["amount"]),
+    }
+    gateway_payload = {**payload, "bin_id": bin_value}
     model = _get_predictive_model()
-    primary: str = model.predict_best_route(bin_id, issuer_lag_detected)
+    primary, gateway_scores = model.predict_best_route(feature_payload)
     secondary: str = GATEWAY_BETA if primary == GATEWAY_ALPHA else GATEWAY_ALPHA
+    model_trace = {
+        "selected_gateway": primary,
+        "feature_vector": feature_payload,
+        "gateway_confidence_scores": gateway_scores,
+    }
 
     async with httpx.AsyncClient(base_url=_WIREMOCK_BASE_URL, timeout=_TRANSACTION_TIMEOUT) as client:
         # Try primary gateway first
         primary_error: Exception | None = None
         try:
             primary_response = await client.post(
-                _GATEWAY_TRANSACT_ENDPOINTS[primary], json=payload
+                _GATEWAY_TRANSACT_ENDPOINTS[primary], json=gateway_payload
             )
             if not _is_failover_response(primary_response):
                 # Primary succeeded (not a failover trigger), return its response
                 primary_response.raise_for_status()
-                return {"gateway": primary, "failover": False, "response": primary_response.json()}
+                return {
+                    "gateway": primary,
+                    "failover": False,
+                    "response": primary_response.json(),
+                    "model_trace": model_trace,
+                }
         except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
             # Primary timed out or returned HTTP error; proceed to failover
             if isinstance(exc, httpx.TimeoutException):
@@ -163,10 +163,15 @@ async def route_transaction(payload: dict) -> dict:
         # Primary failed (504, transition error, timeout, or other HTTP error); failover to secondary
         try:
             secondary_response = await client.post(
-                _GATEWAY_TRANSACT_ENDPOINTS[secondary], json=payload
+                _GATEWAY_TRANSACT_ENDPOINTS[secondary], json=gateway_payload
             )
             secondary_response.raise_for_status()
-            return {"gateway": secondary, "failover": True, "response": secondary_response.json()}
+            return {
+                "gateway": secondary,
+                "failover": True,
+                "response": secondary_response.json(),
+                "model_trace": model_trace,
+            }
         except httpx.HTTPStatusError as exc:
             # Both gateways failed; provide context about the failure chain
             primary_msg = (

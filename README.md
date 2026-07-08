@@ -44,14 +44,20 @@ Accepts a JSON payload and routes the transaction to the optimal gateway using `
 **Request body:**
 ```json
 {
-  "token": "400000",
+  "token": "4111111111111111",
   "amount": 100.50,
+  "card_scheme": "visa",
+  "card_class": "commercial",
+  "transaction_type": "recurring",
   "simulate_issuer_lag": false
 }
 ```
 
-- `token` (string, required) – Payment token or card BIN identifier (must contain numeric digits)
+- `token` (string, required) – Exactly 16 numeric digits
 - `amount` (number, required) – Transaction amount (must be > 0)
+- `card_scheme` (string, required) – `visa|mastercard|amex|discover`
+- `card_class` (string, required) – `credit|debit|premium|commercial`
+- `transaction_type` (string, required) – `cit|mit|recurring`
 - `simulate_issuer_lag` (boolean, optional) – Simulate issuer transitional lag (defaults to false)
 
 **Response:**
@@ -63,6 +69,22 @@ Accepts a JSON payload and routes the transaction to the optimal gateway using `
     "gateway": "gateway_alpha",
     "approved": true,
     "auth_code": "ALPHA-TX-OK"
+  },
+  "model_trace": {
+    "selected_gateway": "gateway_alpha",
+    "feature_vector": {
+      "bin": 411111,
+      "card_scheme": "visa",
+      "card_class": "commercial",
+      "transaction_type": "recurring",
+      "token_lifecycle_status": "active",
+      "historical_decline_rate": 0.02,
+      "amount": 100.5
+    },
+    "gateway_confidence_scores": {
+      "gateway_alpha": 0.71,
+      "gateway_beta": 0.29
+    }
   }
 }
 ```
@@ -70,6 +92,7 @@ Accepts a JSON payload and routes the transaction to the optimal gateway using `
 - `gateway` – Selected gateway (`gateway_alpha` or `gateway_beta`)
 - `failover` – Whether the secondary gateway was used due to primary failure
 - `response` – The gateway's response payload
+- `model_trace` – Feature payload and confidence scores produced by the ML route selector
 
 ## Module-level function
 
@@ -160,7 +183,7 @@ curl -X POST http://localhost:8000/v1/process-payment \
 ```json
 {
   "gateway": "gateway_beta",
-  "failover": true,
+  "failover": false,
   "response": {
     "gateway": "gateway_beta",
     "approved": true,
@@ -308,3 +331,79 @@ curl -X POST http://localhost:8000/v1/process-payment \
 ```
 
 Each BIN prefix may be routed to a different gateway based on the predictive routing model's decision.
+
+## Production Testing Scenario Manual (Windows CMD)
+
+### Scenario A — Normal State (Commercial Recurring via Alpha)
+
+```cmd
+curl -X POST http://localhost:8000/v1/process-payment ^
+  -H "Content-Type: application/json" ^
+  -d "{\"token\":\"4111111111111111\",\"amount\":1249.95,\"card_scheme\":\"visa\",\"card_class\":\"commercial\",\"transaction_type\":\"recurring\",\"simulate_issuer_lag\":false}"
+```
+
+**Expected response**
+```json
+{
+  "gateway": "gateway_alpha",
+  "failover": false,
+  "response": {
+    "gateway": "gateway_alpha",
+    "approved": true,
+    "auth_code": "ALPHA-TX-OK"
+  },
+  "model_trace": {
+    "selected_gateway": "gateway_alpha",
+    "feature_vector": {
+      "bin": 411111,
+      "card_scheme": "visa",
+      "card_class": "commercial",
+      "transaction_type": "recurring",
+      "token_lifecycle_status": "active",
+      "historical_decline_rate": 0.02,
+      "amount": 1249.95
+    },
+    "gateway_confidence_scores": {
+      "gateway_alpha": 0.84,
+      "gateway_beta": 0.16
+    }
+  }
+}
+```
+
+### Scenario B — Intercepting Issuer Migration (Failover via Beta)
+
+```cmd
+curl -X POST http://localhost:8000/v1/process-payment ^
+  -H "Content-Type: application/json" ^
+  -d "{\"token\":\"4111111111111111\",\"amount\":1249.95,\"card_scheme\":\"visa\",\"card_class\":\"commercial\",\"transaction_type\":\"recurring\",\"simulate_issuer_lag\":true}"
+```
+
+**Expected response**
+```json
+{
+  "gateway": "gateway_beta",
+  "failover": true,
+  "response": {
+    "gateway": "gateway_beta",
+    "approved": true,
+    "auth_code": "BETA-TX-OK"
+  },
+  "model_trace": {
+    "selected_gateway": "gateway_beta",
+    "feature_vector": {
+      "bin": 411111,
+      "card_scheme": "visa",
+      "card_class": "commercial",
+      "transaction_type": "recurring",
+      "token_lifecycle_status": "transitional_lag",
+      "historical_decline_rate": 0.42,
+      "amount": 1249.95
+    },
+    "gateway_confidence_scores": {
+      "gateway_alpha": 0.12,
+      "gateway_beta": 0.88
+    }
+  }
+}
+```

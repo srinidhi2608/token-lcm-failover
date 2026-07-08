@@ -1,46 +1,17 @@
 from __future__ import annotations
 
-import re
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import FastAPI, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from app.orchestrator import RoutingOrchestrator, route_transaction
 
 
-# Minimum valid BIN ID threshold for payment card routing
-MIN_BIN_ID = 100000
-
-
 def _extract_bin_id(token: str) -> int:
-    """Extract a numeric BIN ID from a payment token string.
-    
-    Extracts the first contiguous sequence of digits from the token and converts to int.
-    The resulting BIN ID should be a valid card BIN identifier (typically 6-8 digits).
-    
-    Examples:
-        "400000" -> 400000
-        "TKN-400000" -> 400000
-        "500000-ABC" -> 500000
-        "TKN-123-ABC" -> ValueError (extracted "123" is too small, requires >= 100000)
-    
-    Raises
-    ------
-    ValueError
-        If token contains no digits or if extracted number is not a valid BIN ID
-    """
-    # Extract the first contiguous sequence of digits
-    match = re.search(r'\d+', token)
-    if not match:
-        raise ValueError("Token must contain at least one digit")
-    
-    bin_id = int(match.group())
-    # Basic validation: BIN IDs are typically numeric identifiers for card networks
-    if bin_id < MIN_BIN_ID:
-        raise ValueError(f"Extracted BIN ID {bin_id} is too small (expected >= {MIN_BIN_ID})")
-    
-    return bin_id
+    """Extract the first six digits from a 16-digit token as BIN."""
+    return int(token[:6])
 
 
 @asynccontextmanager
@@ -60,16 +31,15 @@ class RouteRequest(BaseModel):
 
 
 class ProcessPaymentRequest(BaseModel):
-    token: str = Field(min_length=1, description="Payment token (card token or BIN identifier)")
-    amount: float = Field(gt=0)
+    token: str = Field(
+        pattern=r"^\d{16}$",
+        description="16-digit payment token",
+    )
+    amount: float = Field(gt=0.0)
+    card_scheme: Literal["visa", "mastercard", "amex", "discover"]
+    card_class: Literal["credit", "debit", "premium", "commercial"]
+    transaction_type: Literal["cit", "mit", "recurring"]
     simulate_issuer_lag: bool = Field(default=False, description="Simulate issuer transitional lag")
-    
-    @field_validator("token", mode="after")
-    @classmethod
-    def validate_token(cls, v: str) -> str:
-        """Validate that token can be converted to a valid BIN ID."""
-        _extract_bin_id(v)  # Will raise ValueError if invalid
-        return v
 
 
 @app.get("/health")
@@ -111,12 +81,17 @@ async def process_payment(payload: ProcessPaymentRequest) -> dict:
         Orchestrator result including selected gateway, failover status, and gateway response
     """
     bin_id = _extract_bin_id(payload.token)
-    issuer_lag_detected = 1 if payload.simulate_issuer_lag else 0
-    
+    token_lifecycle_status = "transitional_lag" if payload.simulate_issuer_lag else "active"
+    historical_decline_rate = 0.42 if payload.simulate_issuer_lag else 0.02
+
     transaction_payload = {
-        "bin_id": bin_id,
+        "bin": bin_id,
+        "card_scheme": payload.card_scheme.lower(),
+        "card_class": payload.card_class.lower(),
+        "transaction_type": payload.transaction_type.lower(),
+        "token_lifecycle_status": token_lifecycle_status,
+        "historical_decline_rate": historical_decline_rate,
         "amount": payload.amount,
-        "issuer_lag_detected": issuer_lag_detected,
     }
-    
+
     return await route_transaction(transaction_payload)

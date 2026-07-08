@@ -152,6 +152,7 @@ async def route_transaction(payload: dict) -> dict:
             secondary_response.raise_for_status()
             return {"gateway": secondary, "failover": True, "response": secondary_response.json()}
 
-        assert primary_response is not None  # guaranteed: no exception and no failover
+        if primary_response is None:
+            raise RuntimeError(f"Gateway '{primary}' produced no response")
         primary_response.raise_for_status()
         return {"gateway": primary, "failover": False, "response": primary_response.json()}

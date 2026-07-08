@@ -11,6 +11,8 @@ token-lcm-failover/
 │   ├── main.py
 │   ├── ml_engine.py
 │   └── orchestrator.py
+├── data/
+│   └── payment_training_data.csv
 ├── wiremock/
 │   └── mappings/
 │       ├── gateway_alpha_success.json
@@ -139,8 +141,11 @@ Process a payment transaction with intelligent gateway routing. The system will 
 curl -X POST http://localhost:8000/v1/process-payment \
   -H "Content-Type: application/json" \
   -d '{
-    "token": "400000",
+    "token": "4111111111111111",
     "amount": 100.50,
+    "card_scheme": "visa",
+    "card_class": "commercial",
+    "transaction_type": "recurring",
     "simulate_issuer_lag": false
   }'
 ```
@@ -154,6 +159,22 @@ curl -X POST http://localhost:8000/v1/process-payment \
     "gateway": "gateway_alpha",
     "approved": true,
     "auth_code": "ALPHA-TX-OK"
+  },
+  "model_trace": {
+    "selected_gateway": "gateway_alpha",
+    "feature_vector": {
+      "bin": 411111,
+      "card_scheme": "visa",
+      "card_class": "commercial",
+      "transaction_type": "recurring",
+      "token_lifecycle_status": "active",
+      "historical_decline_rate": 0.02,
+      "amount": 100.5
+    },
+    "gateway_confidence_scores": {
+      "gateway_alpha": 0.8,
+      "gateway_beta": 0.2
+    }
   }
 }
 ```
@@ -167,14 +188,17 @@ curl -X POST http://localhost:8000/v1/process-payment \
 
 ### 3. Process Payment (With Failover Scenario)
 
-Simulate issuer transitional lag to trigger failover to the secondary gateway:
+Simulate issuer transitional lag to bias selection toward gateway beta:
 
 ```bash
 curl -X POST http://localhost:8000/v1/process-payment \
   -H "Content-Type: application/json" \
   -d '{
-    "token": "500000",
+    "token": "5555551111111111",
     "amount": 250.75,
+    "card_scheme": "mastercard",
+    "card_class": "commercial",
+    "transaction_type": "recurring",
     "simulate_issuer_lag": true
   }'
 ```
@@ -188,11 +212,27 @@ curl -X POST http://localhost:8000/v1/process-payment \
     "gateway": "gateway_beta",
     "approved": true,
     "auth_code": "BETA-TX-OK"
+  },
+  "model_trace": {
+    "selected_gateway": "gateway_beta",
+    "feature_vector": {
+      "bin": 555555,
+      "card_scheme": "mastercard",
+      "card_class": "commercial",
+      "transaction_type": "recurring",
+      "token_lifecycle_status": "transitional_lag",
+      "historical_decline_rate": 0.42,
+      "amount": 250.75
+    },
+    "gateway_confidence_scores": {
+      "gateway_alpha": 0.19,
+      "gateway_beta": 0.81
+    }
   }
 }
 ```
 
-When `simulate_issuer_lag` is `true`, the primary gateway will simulate an issuer transition error, causing the system to automatically failover to the secondary gateway.
+When `simulate_issuer_lag` is `true`, token lifecycle and decline-rate features are mapped to transitional values that increase beta routing confidence.
 
 ---
 
@@ -235,9 +275,7 @@ curl -X POST http://localhost:8000/route \
 
 ### 5. Error Scenarios
 
-#### Invalid Token (Too Small)
-
-A token must extract to a BIN ID >= 100,000:
+#### Invalid Token (Not 16 Digits)
 
 ```bash
 curl -X POST http://localhost:8000/v1/process-payment \
@@ -245,18 +283,21 @@ curl -X POST http://localhost:8000/v1/process-payment \
   -d '{
     "token": "123",
     "amount": 100.00,
+    "card_scheme": "visa",
+    "card_class": "credit",
+    "transaction_type": "cit",
     "simulate_issuer_lag": false
   }'
 ```
 
-**Expected Output (400 Bad Request):**
+**Expected Output (422 Unprocessable Entity):**
 ```json
 {
   "detail": [
     {
-      "type": "value_error",
+      "type": "string_pattern_mismatch",
       "loc": ["body", "token"],
-      "msg": "Value error, Extracted BIN ID 123 is too small (expected >= 100000)",
+      "msg": "String should match pattern '^\\d{16}$'",
       "input": "123"
     }
   ]
@@ -269,7 +310,11 @@ curl -X POST http://localhost:8000/v1/process-payment \
 curl -X POST http://localhost:8000/v1/process-payment \
   -H "Content-Type: application/json" \
   -d '{
-    "token": "400000"
+    "token": "4111111111111111",
+    "card_scheme": "visa",
+    "card_class": "credit",
+    "transaction_type": "cit",
+    "simulate_issuer_lag": false
   }'
 ```
 
@@ -293,8 +338,11 @@ curl -X POST http://localhost:8000/v1/process-payment \
 curl -X POST http://localhost:8000/v1/process-payment \
   -H "Content-Type: application/json" \
   -d '{
-    "token": "400000",
+    "token": "4111111111111111",
     "amount": -50.00,
+    "card_scheme": "visa",
+    "card_class": "credit",
+    "transaction_type": "cit",
     "simulate_issuer_lag": false
   }'
 ```
@@ -323,11 +371,11 @@ The ML model may route transactions differently based on the BIN prefix:
 # Test with different BIN prefixes
 curl -X POST http://localhost:8000/v1/process-payment \
   -H "Content-Type: application/json" \
-  -d '{"token": "300000", "amount": 50.00}'
+  -d '{"token":"3782821111111111","amount":50.00,"card_scheme":"amex","card_class":"premium","transaction_type":"cit","simulate_issuer_lag":false}'
 
 curl -X POST http://localhost:8000/v1/process-payment \
   -H "Content-Type: application/json" \
-  -d '{"token": "600000", "amount": 75.00}'
+  -d '{"token":"6011111111111111","amount":75.00,"card_scheme":"discover","card_class":"debit","transaction_type":"mit","simulate_issuer_lag":false}'
 ```
 
 Each BIN prefix may be routed to a different gateway based on the predictive routing model's decision.
@@ -383,7 +431,7 @@ curl -X POST http://localhost:8000/v1/process-payment ^
 ```json
 {
   "gateway": "gateway_beta",
-  "failover": true,
+  "failover": false,
   "response": {
     "gateway": "gateway_beta",
     "approved": true,

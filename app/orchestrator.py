@@ -167,7 +167,7 @@ async def route_transaction(payload: dict) -> dict:
         except httpx.HTTPStatusError as exc:
             # Both gateways failed; provide context about the failure chain
             primary_status = (
-                f"({primary_error.__class__.__name__})"
+                f"({primary_error.__class__.__name__}: {str(primary_error)})"
                 if primary_error
                 else "(unknown)"
             )

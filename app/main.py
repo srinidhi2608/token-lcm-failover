@@ -12,6 +12,34 @@ from app.orchestrator import RoutingOrchestrator, route_transaction
 MIN_BIN_ID = 100000
 
 
+def _extract_bin_id(token: str) -> int:
+    """Extract a numeric BIN ID from a payment token string.
+    
+    Extracts all digits from the token and converts to int.
+    The resulting BIN ID should be a valid card BIN identifier (typically 6-8 digits).
+    
+    Examples:
+        "400000" -> 400000
+        "TKN-400000" -> 400000
+        "500000-ABC" -> 500000
+    
+    Raises
+    ------
+    ValueError
+        If token contains no digits or if extracted number is not a valid BIN ID
+    """
+    numeric_str = ''.join(c for c in token if c.isdigit())
+    if not numeric_str:
+        raise ValueError("Token must contain at least one digit")
+    
+    bin_id = int(numeric_str)
+    # Basic validation: BIN IDs are typically numeric identifiers for card networks
+    if bin_id < MIN_BIN_ID:
+        raise ValueError(f"Extracted BIN ID {bin_id} is too small (expected >= {MIN_BIN_ID})")
+    
+    return bin_id
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.orchestrator = RoutingOrchestrator()
@@ -54,34 +82,6 @@ async def route(request: Request, payload: RouteRequest) -> dict:
         amount=payload.amount,
         last_error_code=payload.last_error_code,
     )
-
-
-def _extract_bin_id(token: str) -> int:
-    """Extract a numeric BIN ID from a payment token string.
-    
-    Extracts all digits from the token and converts to int.
-    The resulting BIN ID should be a valid card BIN identifier (typically 6-8 digits).
-    
-    Examples:
-        "400000" -> 400000
-        "TKN-400000" -> 400000
-        "500000-ABC" -> 500000
-    
-    Raises
-    ------
-    ValueError
-        If token contains no digits or if extracted number is not a valid BIN ID
-    """
-    numeric_str = ''.join(c for c in token if c.isdigit())
-    if not numeric_str:
-        raise ValueError("Token must contain at least one digit")
-    
-    bin_id = int(numeric_str)
-    # Basic validation: BIN IDs are typically numeric identifiers for card networks
-    if bin_id < MIN_BIN_ID:
-        raise ValueError(f"Extracted BIN ID {bin_id} is too small (expected >= {MIN_BIN_ID})")
-    
-    return bin_id
 
 
 @app.post("/v1/process-payment")

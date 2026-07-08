@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from pydantic import BaseModel, Field
 
-from app.orchestrator import RoutingOrchestrator
+from app.orchestrator import RoutingOrchestrator, route_transaction
 
 
 @asynccontextmanager
@@ -24,6 +24,12 @@ class RouteRequest(BaseModel):
     last_error_code: str | None = None
 
 
+class ProcessPaymentRequest(BaseModel):
+    token: str = Field(min_length=1, description="Payment token (card token or BIN identifier)")
+    amount: float = Field(gt=0)
+    simulate_issuer_lag: bool = Field(default=False, description="Simulate issuer transitional lag")
+
+
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
@@ -37,3 +43,50 @@ async def route(request: Request, payload: RouteRequest) -> dict:
         amount=payload.amount,
         last_error_code=payload.last_error_code,
     )
+
+
+def _extract_bin_id(token: str) -> int:
+    """Extract a numeric BIN ID from a payment token string.
+    
+    Extracts all consecutive digits from the token and converts to int.
+    Raises ValueError if no digits are found.
+    """
+    numeric_str = ''.join(c for c in token if c.isdigit())
+    if not numeric_str:
+        raise ValueError("Token must contain at least one digit")
+    return int(numeric_str)
+
+
+@app.post("/v1/process-payment")
+async def process_payment(payload: ProcessPaymentRequest) -> dict:
+    """Process a payment transaction with intelligent gateway routing.
+    
+    Uses PredictiveRoutingModel to select the optimal gateway (alpha or beta),
+    sends the transaction to the chosen gateway, and automatically fails over
+    to the secondary gateway on 504 errors or issuer transitional lag.
+    
+    Parameters
+    ----------
+    payload : ProcessPaymentRequest
+        token : str
+            Payment token or card BIN identifier (numeric string)
+        amount : float
+            Transaction amount (must be > 0)
+        simulate_issuer_lag : bool
+            Whether to simulate issuer transitional lag (defaults to False)
+    
+    Returns
+    -------
+    dict
+        Orchestrator result including selected gateway, failover status, and gateway response
+    """
+    bin_id = _extract_bin_id(payload.token)
+    issuer_lag_detected = 1 if payload.simulate_issuer_lag else 0
+    
+    transaction_payload = {
+        "bin_id": bin_id,
+        "amount": payload.amount,
+        "issuer_lag_detected": issuer_lag_detected,
+    }
+    
+    return await route_transaction(transaction_payload)

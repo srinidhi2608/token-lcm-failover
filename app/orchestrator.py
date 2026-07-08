@@ -16,6 +16,12 @@ class RouteDecision:
 
 
 class RoutingOrchestrator:
+    """Async orchestrator for routing payment transactions to gateways.
+    
+    Manages an httpx.AsyncClient internally. The caller is responsible for
+    calling aclose() to properly clean up resources. In FastAPI apps, use
+    lifespan context managers to ensure cleanup on app shutdown.
+    """
     def __init__(self, wiremock_base_url: str = "http://wiremock:8080", request_timeout: float = 5.0) -> None:
         self._wiremock_base_url = wiremock_base_url.rstrip("/")
         self._ml_engine = MLEngine()
@@ -83,6 +89,9 @@ _GATEWAY_TRANSACT_ENDPOINTS: dict[str, str] = {
 
 _TRANSITION_ERRORS: frozenset[str] = frozenset({"issuer_transitional_lag"})
 
+# HTTP request timeout for transaction endpoints (in seconds)
+_TRANSACTION_TIMEOUT: float = 10.0
+
 _predictive_model: PredictiveRoutingModel | None = None
 
 
@@ -133,7 +142,7 @@ async def route_transaction(payload: dict) -> dict:
     primary: str = model.predict_best_route(bin_id, issuer_lag_detected)
     secondary: str = GATEWAY_BETA if primary == GATEWAY_ALPHA else GATEWAY_ALPHA
 
-    async with httpx.AsyncClient(base_url=_WIREMOCK_BASE_URL, timeout=10.0) as client:
+    async with httpx.AsyncClient(base_url=_WIREMOCK_BASE_URL, timeout=_TRANSACTION_TIMEOUT) as client:
         # Try primary gateway first
         try:
             primary_response = await client.post(

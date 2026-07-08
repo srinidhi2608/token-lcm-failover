@@ -8,6 +8,10 @@ from pydantic import BaseModel, Field
 from app.orchestrator import RoutingOrchestrator, route_transaction
 
 
+# Minimum valid BIN ID threshold for payment card routing
+MIN_BIN_ID = 100000
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.orchestrator = RoutingOrchestrator()
@@ -67,8 +71,8 @@ def _extract_bin_id(token: str) -> int:
     
     bin_id = int(numeric_str)
     # Basic validation: BIN IDs are typically numeric identifiers for card networks
-    if bin_id < 100000:
-        raise ValueError(f"Extracted BIN ID {bin_id} is too small (expected >= 100000)")
+    if bin_id < MIN_BIN_ID:
+        raise ValueError(f"Extracted BIN ID {bin_id} is too small (expected >= {MIN_BIN_ID})")
     
     return bin_id
 

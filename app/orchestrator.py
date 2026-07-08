@@ -171,7 +171,7 @@ async def route_transaction(payload: dict) -> dict:
             # Both gateways failed; provide context about the failure chain
             primary_msg = (
                 primary_error.args[0]
-                if primary_error and primary_error.args and len(primary_error.args) > 0
+                if primary_error and primary_error.args
                 else "unknown error"
             )
             raise RuntimeError(

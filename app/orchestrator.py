@@ -155,7 +155,10 @@ async def route_transaction(payload: dict) -> dict:
                 return {"gateway": primary, "failover": False, "response": primary_response.json()}
         except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
             # Primary timed out or returned HTTP error; proceed to failover
-            primary_error = exc
+            if isinstance(exc, httpx.TimeoutException):
+                primary_error = RuntimeError("Request timeout")
+            else:
+                primary_error = exc
 
         # Primary failed (504, transition error, timeout, or other HTTP error); failover to secondary
         try:
@@ -166,12 +169,12 @@ async def route_transaction(payload: dict) -> dict:
             return {"gateway": secondary, "failover": True, "response": secondary_response.json()}
         except httpx.HTTPStatusError as exc:
             # Both gateways failed; provide context about the failure chain
-            primary_status = (
-                f"({primary_error.__class__.__name__}: {str(primary_error)})"
-                if primary_error
-                else "(unknown)"
+            primary_msg = (
+                primary_error.args[0]
+                if primary_error and primary_error.args
+                else "unknown error"
             )
             raise RuntimeError(
-                f"Payment routing failed: primary gateway '{primary}' {primary_status}, "
+                f"Payment routing failed: primary gateway '{primary}' ({primary_msg}), "
                 f"secondary gateway '{secondary}' returned status {exc.response.status_code}"
             ) from exc

@@ -117,7 +117,10 @@ def _is_failover_response(response: httpx.Response) -> bool:
 
 async def route_transaction(payload: dict) -> dict:
     """Determine the optimal gateway via ML and execute an HTTP POST to it."""
-    bin_value = int(payload.get("bin", payload.get("bin_id")))
+    raw_bin = payload.get("bin", payload.get("bin_id"))
+    if raw_bin is None:
+        raise ValueError("route_transaction payload must include 'bin' or 'bin_id'")
+    bin_value = int(raw_bin)
     feature_payload = {
         "bin": bin_value,
         "card_scheme": str(payload["card_scheme"]).lower(),

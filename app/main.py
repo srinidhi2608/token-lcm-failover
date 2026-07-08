@@ -48,13 +48,29 @@ async def route(request: Request, payload: RouteRequest) -> dict:
 def _extract_bin_id(token: str) -> int:
     """Extract a numeric BIN ID from a payment token string.
     
-    Extracts all consecutive digits from the token and converts to int.
-    Raises ValueError if no digits are found.
+    Extracts all digits from the token and converts to int.
+    The resulting BIN ID should be a valid card BIN identifier (typically 6-8 digits).
+    
+    Examples:
+        "400000" -> 400000
+        "TKN-400000" -> 400000
+        "500000-ABC" -> 500000
+    
+    Raises
+    ------
+    ValueError
+        If token contains no digits or if extracted number is not a valid BIN ID
     """
     numeric_str = ''.join(c for c in token if c.isdigit())
     if not numeric_str:
         raise ValueError("Token must contain at least one digit")
-    return int(numeric_str)
+    
+    bin_id = int(numeric_str)
+    # Basic validation: BIN IDs are typically numeric identifiers for card networks
+    if bin_id < 100000:
+        raise ValueError(f"Extracted BIN ID {bin_id} is too small (expected >= 100000)")
+    
+    return bin_id
 
 
 @app.post("/v1/process-payment")

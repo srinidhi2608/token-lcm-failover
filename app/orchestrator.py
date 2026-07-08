@@ -134,25 +134,22 @@ async def route_transaction(payload: dict) -> dict:
     secondary: str = GATEWAY_BETA if primary == GATEWAY_ALPHA else GATEWAY_ALPHA
 
     async with httpx.AsyncClient(base_url=_WIREMOCK_BASE_URL, timeout=10.0) as client:
-        failover: bool = False
-        primary_response: httpx.Response | None = None
+        # Try primary gateway first
         try:
             primary_response = await client.post(
                 _GATEWAY_TRANSACT_ENDPOINTS[primary], json=payload
             )
-            if _is_failover_response(primary_response):
-                failover = True
+            if not _is_failover_response(primary_response):
+                # Primary succeeded, return its response
+                primary_response.raise_for_status()
+                return {"gateway": primary, "failover": False, "response": primary_response.json()}
         except httpx.TimeoutException:
-            failover = True
+            # Primary timed out, proceed to failover
+            pass
 
-        if failover:
-            secondary_response = await client.post(
-                _GATEWAY_TRANSACT_ENDPOINTS[secondary], json=payload
-            )
-            secondary_response.raise_for_status()
-            return {"gateway": secondary, "failover": True, "response": secondary_response.json()}
-
-        if primary_response is None:
-            raise RuntimeError(f"Gateway '{primary}' produced no response")
-        primary_response.raise_for_status()
-        return {"gateway": primary, "failover": False, "response": primary_response.json()}
+        # Primary failed or timed out; failover to secondary
+        secondary_response = await client.post(
+            _GATEWAY_TRANSACT_ENDPOINTS[secondary], json=payload
+        )
+        secondary_response.raise_for_status()
+        return {"gateway": secondary, "failover": True, "response": secondary_response.json()}

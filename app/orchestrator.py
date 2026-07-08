@@ -144,21 +144,34 @@ async def route_transaction(payload: dict) -> dict:
 
     async with httpx.AsyncClient(base_url=_WIREMOCK_BASE_URL, timeout=_TRANSACTION_TIMEOUT) as client:
         # Try primary gateway first
+        primary_error: Exception | None = None
         try:
             primary_response = await client.post(
                 _GATEWAY_TRANSACT_ENDPOINTS[primary], json=payload
             )
             if not _is_failover_response(primary_response):
-                # Primary succeeded, return its response
+                # Primary succeeded (not a failover trigger), return its response
                 primary_response.raise_for_status()
                 return {"gateway": primary, "failover": False, "response": primary_response.json()}
-        except httpx.TimeoutException:
-            # Primary timed out, proceed to failover
-            pass
+        except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+            # Primary timed out or returned HTTP error; proceed to failover
+            primary_error = exc
 
-        # Primary failed or timed out; failover to secondary
-        secondary_response = await client.post(
-            _GATEWAY_TRANSACT_ENDPOINTS[secondary], json=payload
-        )
-        secondary_response.raise_for_status()
-        return {"gateway": secondary, "failover": True, "response": secondary_response.json()}
+        # Primary failed (504, transition error, timeout, or other HTTP error); failover to secondary
+        try:
+            secondary_response = await client.post(
+                _GATEWAY_TRANSACT_ENDPOINTS[secondary], json=payload
+            )
+            secondary_response.raise_for_status()
+            return {"gateway": secondary, "failover": True, "response": secondary_response.json()}
+        except httpx.HTTPStatusError as exc:
+            # Both gateways failed; provide context about the failure chain
+            primary_status = (
+                f"({primary_error.__class__.__name__})"
+                if primary_error
+                else "(unknown)"
+            )
+            raise RuntimeError(
+                f"Payment routing failed: primary gateway '{primary}' {primary_status}, "
+                f"secondary gateway '{secondary}' returned status {exc.response.status_code}"
+            ) from exc

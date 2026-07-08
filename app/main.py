@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.orchestrator import RoutingOrchestrator, route_transaction
 
@@ -32,6 +32,13 @@ class ProcessPaymentRequest(BaseModel):
     token: str = Field(min_length=1, description="Payment token (card token or BIN identifier)")
     amount: float = Field(gt=0)
     simulate_issuer_lag: bool = Field(default=False, description="Simulate issuer transitional lag")
+    
+    @field_validator("token", mode="after")
+    @classmethod
+    def validate_token(cls, v: str) -> str:
+        """Validate that token can be converted to a valid BIN ID."""
+        _extract_bin_id(v)  # Will raise ValueError if invalid
+        return v
 
 
 @app.get("/health")

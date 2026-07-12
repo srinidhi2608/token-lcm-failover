@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/gateway/beta/authorize"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "gateway": "beta",
+      "approved": true,
+      "auth_code": "BETA-OK"
+    },
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  }
+}

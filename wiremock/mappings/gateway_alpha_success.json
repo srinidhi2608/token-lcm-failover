@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/gateway/alpha/authorize"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "gateway": "alpha",
+      "approved": true,
+      "auth_code": "ALPHA-OK"
+    },
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  }
+}

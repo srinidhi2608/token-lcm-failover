@@ -1,0 +1,17 @@
+bin,card_scheme,card_class,transaction_type,token_lifecycle_status,historical_decline_rate,amount,recommended_gateway
+411111,visa,commercial,recurring,active,0.02,1250.00,gateway_alpha
+411111,visa,commercial,recurring,active,0.03,980.00,gateway_alpha
+411111,visa,premium,cit,active,0.04,250.50,gateway_alpha
+400005,visa,debit,cit,active,0.03,85.10,gateway_alpha
+510510,mastercard,credit,cit,active,0.06,210.25,gateway_alpha
+555555,mastercard,debit,mit,active,0.05,140.00,gateway_alpha
+378282,amex,premium,cit,active,0.07,430.80,gateway_alpha
+601111,discover,commercial,recurring,active,0.06,760.20,gateway_alpha
+411111,visa,commercial,recurring,transitional_lag,0.42,1250.00,gateway_beta
+411111,visa,commercial,recurring,transitional_lag,0.45,1120.25,gateway_beta
+400005,visa,debit,cit,transitional_lag,0.38,85.10,gateway_beta
+510510,mastercard,credit,mit,transitional_lag,0.40,210.25,gateway_beta
+555555,mastercard,commercial,recurring,transitional_lag,0.44,140.00,gateway_beta
+378282,amex,premium,recurring,transitional_lag,0.46,430.80,gateway_beta
+601111,discover,commercial,recurring,transitional_lag,0.43,760.20,gateway_beta
+601111,discover,debit,cit,active,0.04,92.00,gateway_alpha

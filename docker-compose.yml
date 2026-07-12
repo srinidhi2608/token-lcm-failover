@@ -1,0 +1,18 @@
+services:
+  api:
+    build: .
+    container_name: token-lcm-failover-api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - wiremock
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  wiremock:
+    image: wiremock/wiremock:3.9.1
+    container_name: token-lcm-failover-wiremock
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./wiremock/mappings:/home/wiremock/mappings
